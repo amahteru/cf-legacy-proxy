@@ -56,7 +56,7 @@ export default {
     const location = res.headers.get('Location');
     if (location) {
       try {
-        const loc = new URL(location, `https://${targetDomain}`);
+        const loc = new URL(location, `${targetProto}//${targetDomain}`);
         if (loc.hostname === targetHost) {
           loc.protocol = 'http:';
           loc.hostname = origHostname;
@@ -86,15 +86,16 @@ export default {
     }
 
     const ct = res.headers.get('content-type') || '';
-    if (![101, 204, 205, 304].includes(res.status) && /html|wml|xhtml|text\/css|javascript|json|xml/i.test(ct)) {
+    if (request.method !== 'HEAD' && ![101, 204, 205, 304].includes(res.status) && /html|wml|xhtml|text\/css|javascript|json|xml/i.test(ct)) {
       const arrayBuf = await res.arrayBuffer();
 
       let charset = ct.match(/charset=([^;]+)/i)?.[1]?.trim().toLowerCase();
       if (!charset && /html|wml|xhtml|xml/i.test(ct)) {
         const preview = new TextDecoder('latin1').decode(arrayBuf.slice(0, 1024));
-        const metaMatch = preview.match(/<meta[^>]+charset=["']?([a-zA-Z0-9_-]+)/i) ||
-                          preview.match(/<meta[^>]+content=["'][^"']*charset=([a-zA-Z0-9_-]+)/i);
-        if (metaMatch) charset = metaMatch[1].trim().toLowerCase();
+        const match = preview.match(/<meta[^>]+charset\s*=\s*["']?([a-zA-Z0-9_-]+)/i) ||
+                      preview.match(/<meta[^>]+content=["'][^"']*charset\s*=\s*([a-zA-Z0-9_-]+)/i) ||
+                      preview.match(/<\?xml[^>]+encoding\s*=\s*["']([a-zA-Z0-9_-]+)["']/i);
+        if (match) charset = match[1].trim().toLowerCase();
       }
       charset = charset || 'utf-8';
 
@@ -107,14 +108,15 @@ export default {
 
       const escapedHost = targetHost.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const portPattern = targetPort ? `(?::${targetPort})?` : '(?::\\d+)?';
-      const domainRegex = new RegExp(`(?:https?:)?(\\\\/\\\\/|//)${escapedHost}${portPattern}(?=[/?#"')\\\\\\s<>]|$)`, 'gi');
-      text = text.replace(domainRegex, (_, slashes) => `http:${slashes}${originalHost}`);
+      const domainRegex = new RegExp(`(?:https?:(\\\\/\\\\/|//)|(?<![:a-zA-Z0-9+.-])(\\\\/\\\\/|//))${escapedHost}${portPattern}(?=[/?#"')\\\\\\s<>]|$)`, 'gi');
+      text = text.replace(domainRegex, (_, s1, s2) => `http:${s1 || s2}${originalHost}`);
 
-      if (/html|wml|xhtml/i.test(ct)) {
+      if (/html|wml|xhtml|xml/i.test(ct)) {
         text = text
           .replace(/<meta[^>]*http-equiv\s*=\s*["']?Content-Security-Policy["']?[^>]*>/gi, '')
-          .replace(/(<meta[^>]+content=["'][^"']*charset=)[a-zA-Z0-9_-]+(["'])/gi, '$1utf-8$2')
-          .replace(/(<meta[^>]+charset=["']?)[a-zA-Z0-9_-]+(["']?)/gi, '$1utf-8$2');
+          .replace(/(<meta[^>]+content=["'][^"']*charset)\s*=\s*[a-zA-Z0-9_-]+(["'])/gi, '$1=utf-8$2')
+          .replace(/(<meta[^>]+charset)\s*=\s*(["']?)[a-zA-Z0-9_-]+(["']?)/gi, '$1=$2utf-8$3')
+          .replace(/(<\?xml[^>]+encoding)\s*=\s*(["'])[a-zA-Z0-9_-]+(["'])/gi, '$1=$2utf-8$3');
       }
 
       const encoded = new TextEncoder().encode(text);
