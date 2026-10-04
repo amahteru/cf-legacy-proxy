@@ -16,21 +16,29 @@ export default {
     if (!rawTarget) return new Response('Missing TARGET_DOMAIN', { status: 500 });
 
     const targetDomain = rawTarget.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
-    const [targetHost, targetPort] = targetDomain.split(':');
+    const [targetHost, targetPort = ''] = targetDomain.split(':');
 
     const url = new URL(request.url);
     const originalHost = url.host;
+    const [origHost, origPort = ''] = originalHost.split(':');
+
     url.hostname = targetHost;
     url.protocol = 'https:';
-    url.port = targetPort || '';
+    url.port = targetPort;
 
     const headers = new Headers(request.headers);
     headers.set('Host', targetHost);
     headers.set('X-Forwarded-Host', originalHost);
-    headers.set('X-Forwarded-Proto', 'http');
-    headers.set('Accept-Encoding', 'gzip, deflate');
+    headers.set('X-Forwarded-Proto', 'https');
     headers.set('X-Real-IP', request.headers.get('CF-Connecting-IP') || 'unknown-ip');
     headers.delete('CF-Connecting-IP');
+
+    const clientAE = request.headers.get('accept-encoding') || '';
+    if (clientAE.includes('gzip')) {
+      headers.set('Accept-Encoding', 'gzip, deflate');
+    } else {
+      headers.set('Accept-Encoding', 'identity');
+    }
 
     if (request.cf) {
       headers.set('X-Real-Country', request.cf.country || '');
@@ -55,7 +63,8 @@ export default {
         const loc = new URL(location, `https://${targetDomain}`);
         if (loc.hostname === targetHost) {
           loc.protocol = 'http:';
-          loc.host = originalHost;
+          loc.hostname = origHost;
+          loc.port = origPort;
           res.headers.set('Location', loc.toString());
         }
       } catch {
@@ -81,19 +90,35 @@ export default {
     }
 
     const ct = res.headers.get('content-type') || '';
-    if (/html|wml|xhtml|text\/css/i.test(ct)) {
-      const escaped = targetDomain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const domainRegex = new RegExp(`(?:https?:)?//${escaped}(?=[/?#"')\\s]|$)`, 'gi');
+    if (/html|wml|xhtml|text\/css|javascript|json|xml/i.test(ct)) {
+      const charsetMatch = ct.match(/charset=([^;]+)/i);
+      const charset = charsetMatch ? charsetMatch[1].trim() : 'utf-8';
 
-      let text = (await res.text()).replace(domainRegex, `http://${originalHost}`);
-      if (/html|wml|xhtml/i.test(ct)) {
-        text = text.replace(/<meta[^>]*http-equiv=["']?Content-Security-Policy["']?[^>]*>/gi, '');
+      const arrayBuf = await res.arrayBuffer();
+      let text;
+      try {
+        text = new TextDecoder(charset).decode(arrayBuf);
+      } catch {
+        text = new TextDecoder('utf-8').decode(arrayBuf);
       }
 
+      const escaped = targetDomain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const domainRegex = new RegExp(`(?:https?:)?//${escaped}(?=[/?#"')\\s]|$)`, 'gi');
+      text = text.replace(domainRegex, `http://${originalHost}`);
+
+      if (/html|wml|xhtml/i.test(ct)) {
+        text = text.replace(/<meta[^>]*http-equiv\s*=\s*["']?Content-Security-Policy["']?[^>]*>/gi, '');
+      }
+
+      const encoded = new TextEncoder().encode(text);
       const h = new Headers(res.headers);
-      h.delete('content-length');
       h.delete('content-encoding');
-      res = new Response(text, { status: res.status, statusText: res.statusText, headers: h });
+      h.set('content-length', encoded.byteLength.toString());
+      if (ct.includes('charset=')) {
+        h.set('content-type', ct.replace(/charset=[^;]+/i, 'charset=utf-8'));
+      }
+
+      res = new Response(encoded, { status: res.status, statusText: res.statusText, headers: h });
     }
 
     res.headers.set('Access-Control-Allow-Origin', '*');
