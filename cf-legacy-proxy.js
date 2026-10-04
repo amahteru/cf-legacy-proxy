@@ -1,6 +1,6 @@
 export default {
-  async fetch(request, env, ctx) {
-    if (request.method === 'OPTIONS') {
+  async fetch(request, env) {
+    if (request.method === 'OPTIONS' && request.headers.has('Origin')) {
       return new Response(null, {
         status: 204,
         headers: {
@@ -12,19 +12,23 @@ export default {
       });
     }
 
-    const targetDomain = env.TARGET_DOMAIN;
-    if (!targetDomain) return new Response('Missing TARGET_DOMAIN', { status: 500 });
+    const rawTarget = env.TARGET_DOMAIN;
+    if (!rawTarget) return new Response('Missing TARGET_DOMAIN', { status: 500 });
+
+    const targetDomain = rawTarget.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+    const [targetHost, targetPort] = targetDomain.split(':');
 
     const url = new URL(request.url);
     const originalHost = url.host;
-    url.hostname = targetDomain;
+    url.hostname = targetHost;
     url.protocol = 'https:';
-    url.port = '';
+    url.port = targetPort || '';
 
     const headers = new Headers(request.headers);
-    headers.set('Host', targetDomain);
+    headers.set('Host', targetHost);
     headers.set('X-Forwarded-Host', originalHost);
     headers.set('X-Forwarded-Proto', 'http');
+    headers.set('Accept-Encoding', 'gzip, deflate');
     headers.set('X-Real-IP', request.headers.get('CF-Connecting-IP') || 'unknown-ip');
     headers.delete('CF-Connecting-IP');
 
@@ -49,13 +53,14 @@ export default {
     if (location) {
       try {
         const loc = new URL(location, `https://${targetDomain}`);
-        if (loc.hostname === targetDomain) {
+        if (loc.hostname === targetHost) {
           loc.protocol = 'http:';
           loc.host = originalHost;
           res.headers.set('Location', loc.toString());
         }
       } catch {
-        res.headers.set('Location', location.replace(new RegExp(`https?://${targetDomain}`, 'gi'), `http://${originalHost}`));
+        const escaped = targetDomain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        res.headers.set('Location', location.replace(new RegExp(`https?://${escaped}(?=[/?#]|$)`, 'gi'), `http://${originalHost}`));
       }
     }
 
@@ -68,7 +73,7 @@ export default {
       res.headers.delete('Set-Cookie');
       for (const c of rawCookies) {
         res.headers.append('Set-Cookie', c
-          .replace(new RegExp(`Domain=[^;]+;?\\s*`, 'gi'), '')
+          .replace(/;\s*Domain=[^;]+/gi, '')
           .replace(/;\s*Secure/gi, '')
           .replace(/;\s*SameSite=None/gi, '; SameSite=Lax')
         );
@@ -76,10 +81,18 @@ export default {
     }
 
     const ct = res.headers.get('content-type') || '';
-    if (/html|wml|xhtml/i.test(ct)) {
-      const text = (await res.text()).replace(new RegExp(`https?://${targetDomain}`, 'gi'), `http://${originalHost}`);
+    if (/html|wml|xhtml|text\/css/i.test(ct)) {
+      const escaped = targetDomain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const domainRegex = new RegExp(`(?:https?:)?//${escaped}(?=[/?#"')\\s]|$)`, 'gi');
+
+      let text = (await res.text()).replace(domainRegex, `http://${originalHost}`);
+      if (/html|wml|xhtml/i.test(ct)) {
+        text = text.replace(/<meta[^>]*http-equiv=["']?Content-Security-Policy["']?[^>]*>/gi, '');
+      }
+
       const h = new Headers(res.headers);
       h.delete('content-length');
+      h.delete('content-encoding');
       res = new Response(text, { status: res.status, statusText: res.statusText, headers: h });
     }
 
