@@ -15,15 +15,15 @@ export default {
     const rawTarget = env.TARGET_DOMAIN;
     if (!rawTarget) return new Response('Missing TARGET_DOMAIN', { status: 500 });
 
+    const targetProto = /^http:\/\//i.test(rawTarget) ? 'http:' : 'https:';
     const targetDomain = rawTarget.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
     const [targetHost, targetPort = ''] = targetDomain.split(':');
 
     const url = new URL(request.url);
-    const originalHost = url.host;
-    const [origHost, origPort = ''] = originalHost.split(':');
+    const { hostname: origHostname, port: origPort, host: originalHost } = url;
 
     url.hostname = targetHost;
-    url.protocol = 'https:';
+    url.protocol = targetProto;
     url.port = targetPort;
 
     const headers = new Headers(request.headers);
@@ -34,11 +34,7 @@ export default {
     headers.delete('CF-Connecting-IP');
 
     const clientAE = request.headers.get('accept-encoding') || '';
-    if (clientAE.includes('gzip')) {
-      headers.set('Accept-Encoding', 'gzip, deflate');
-    } else {
-      headers.set('Accept-Encoding', 'identity');
-    }
+    headers.set('Accept-Encoding', clientAE.includes('gzip') ? 'gzip, deflate' : 'identity');
 
     if (request.cf) {
       headers.set('X-Real-Country', request.cf.country || '');
@@ -63,13 +59,13 @@ export default {
         const loc = new URL(location, `https://${targetDomain}`);
         if (loc.hostname === targetHost) {
           loc.protocol = 'http:';
-          loc.hostname = origHost;
+          loc.hostname = origHostname;
           loc.port = origPort;
           res.headers.set('Location', loc.toString());
         }
       } catch {
-        const escaped = targetDomain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        res.headers.set('Location', location.replace(new RegExp(`https?://${escaped}(?=[/?#]|$)`, 'gi'), `http://${originalHost}`));
+        const escaped = targetHost.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        res.headers.set('Location', location.replace(new RegExp(`https?://${escaped}(?::\\d+)?(?=[/?#]|$)`, 'gi'), `http://${originalHost}`));
       }
     }
 
@@ -91,10 +87,17 @@ export default {
 
     const ct = res.headers.get('content-type') || '';
     if (/html|wml|xhtml|text\/css|javascript|json|xml/i.test(ct)) {
-      const charsetMatch = ct.match(/charset=([^;]+)/i);
-      const charset = charsetMatch ? charsetMatch[1].trim() : 'utf-8';
-
       const arrayBuf = await res.arrayBuffer();
+
+      let charset = ct.match(/charset=([^;]+)/i)?.[1]?.trim().toLowerCase();
+      if (!charset && /html|wml|xhtml|xml/i.test(ct)) {
+        const preview = new TextDecoder('latin1').decode(arrayBuf.slice(0, 1024));
+        const metaMatch = preview.match(/<meta[^>]+charset=["']?([a-zA-Z0-9_-]+)/i) ||
+                          preview.match(/<meta[^>]+content=["'][^"']*charset=([a-zA-Z0-9_-]+)/i);
+        if (metaMatch) charset = metaMatch[1].trim().toLowerCase();
+      }
+      charset = charset || 'utf-8';
+
       let text;
       try {
         text = new TextDecoder(charset).decode(arrayBuf);
@@ -102,21 +105,23 @@ export default {
         text = new TextDecoder('utf-8').decode(arrayBuf);
       }
 
-      const escaped = targetDomain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const domainRegex = new RegExp(`(?:https?:)?//${escaped}(?=[/?#"')\\s]|$)`, 'gi');
-      text = text.replace(domainRegex, `http://${originalHost}`);
+      const escapedHost = targetHost.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const portPattern = targetPort ? `(?::${targetPort})?` : '(?::\\d+)?';
+      const domainRegex = new RegExp(`(?:https?:)?(\\\\/\\\\/|//)${escapedHost}${portPattern}(?=[/?#"')\\\\\\s<>]|$)`, 'gi');
+      text = text.replace(domainRegex, (_, slashes) => `http:${slashes}${originalHost}`);
 
       if (/html|wml|xhtml/i.test(ct)) {
-        text = text.replace(/<meta[^>]*http-equiv\s*=\s*["']?Content-Security-Policy["']?[^>]*>/gi, '');
+        text = text
+          .replace(/<meta[^>]*http-equiv\s*=\s*["']?Content-Security-Policy["']?[^>]*>/gi, '')
+          .replace(/(<meta[^>]+content=["'][^"']*charset=)[a-zA-Z0-9_-]+(["'])/gi, '$1utf-8$2')
+          .replace(/(<meta[^>]+charset=["']?)[a-zA-Z0-9_-]+(["']?)/gi, '$1utf-8$2');
       }
 
       const encoded = new TextEncoder().encode(text);
       const h = new Headers(res.headers);
       h.delete('content-encoding');
       h.set('content-length', encoded.byteLength.toString());
-      if (ct.includes('charset=')) {
-        h.set('content-type', ct.replace(/charset=[^;]+/i, 'charset=utf-8'));
-      }
+      h.set('content-type', ct.includes('charset=') ? ct.replace(/charset=[^;]+/i, 'charset=utf-8') : `${ct}; charset=utf-8`);
 
       res = new Response(encoded, { status: res.status, statusText: res.statusText, headers: h });
     }
