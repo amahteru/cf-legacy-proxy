@@ -1,57 +1,92 @@
 export default {
   async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-    
-    const targetDomain = env.TARGET_DOMAIN;
-    if (!targetDomain) {
-      return new Response("Configuration Error: Missing TARGET_DOMAIN environment variable.", { status: 500 });
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': '*',
+          'Access-Control-Allow-Headers': '*',
+          'Access-Control-Max-Age': '86400'
+        }
+      });
     }
 
-    const originalHost = url.hostname;
+    const targetDomain = env.TARGET_DOMAIN;
+    if (!targetDomain) return new Response('Missing TARGET_DOMAIN', { status: 500 });
+
+    const url = new URL(request.url);
+    const originalHost = url.host;
     url.hostname = targetDomain;
-    url.protocol = 'https:'; 
+    url.protocol = 'https:';
+    url.port = '';
 
-    const newHeaders = new Headers(request.headers);
-    newHeaders.set('Host', targetDomain); 
-    newHeaders.set('X-Forwarded-Host', originalHost);
-
-    const clientIP = request.headers.get('CF-Connecting-IP') || 'unknown-ip';
-    newHeaders.set('X-Real-IP', clientIP);
+    const headers = new Headers(request.headers);
+    headers.set('Host', targetDomain);
+    headers.set('X-Forwarded-Host', originalHost);
+    headers.set('X-Forwarded-Proto', 'http');
+    headers.set('X-Real-IP', request.headers.get('CF-Connecting-IP') || 'unknown-ip');
+    headers.delete('CF-Connecting-IP');
 
     if (request.cf) {
-        newHeaders.set('X-Real-Country', request.cf.country || '');
-        newHeaders.set('X-Real-Region', request.cf.region || '');
-        newHeaders.set('X-Real-City', request.cf.city || '');
+      headers.set('X-Real-Country', request.cf.country || '');
+      headers.set('X-Real-Region', request.cf.region || '');
+      headers.set('X-Real-City', request.cf.city || '');
     }
 
-    const newRequestInit = {
-        method: request.method,
-        headers: newHeaders,
-        redirect: 'manual' 
-    };
-    
-    if (request.method !== 'GET' && request.method !== 'HEAD') {
-        newRequestInit.body = request.body;
-    }
+    const isBodyMethod = request.method !== 'GET' && request.method !== 'HEAD';
+    const response = await fetch(url.toString(), {
+      method: request.method,
+      headers,
+      body: isBodyMethod ? request.body : null,
+      redirect: 'manual',
+      ...(isBodyMethod ? { duplex: 'half' } : {})
+    });
 
-    const newRequest = new Request(url.toString(), newRequestInit);
+    let res = new Response(response.body, response);
 
-    let response = await fetch(newRequest);
-    let newResponse = new Response(response.body, response);
-
-    const location = newResponse.headers.get('Location');
+    const location = res.headers.get('Location');
     if (location) {
-        let safeLocation = location.replace(targetDomain, originalHost);
-        safeLocation = safeLocation.replace('https://', 'http://');
-        
-        newResponse.headers.set('Location', safeLocation);
+      try {
+        const loc = new URL(location, `https://${targetDomain}`);
+        if (loc.hostname === targetDomain) {
+          loc.protocol = 'http:';
+          loc.host = originalHost;
+          res.headers.set('Location', loc.toString());
+        }
+      } catch {
+        res.headers.set('Location', location.replace(new RegExp(`https?://${targetDomain}`, 'gi'), `http://${originalHost}`));
+      }
     }
 
-    newResponse.headers.delete('Strict-Transport-Security');
+    res.headers.delete('Strict-Transport-Security');
+    res.headers.delete('Content-Security-Policy');
+    res.headers.delete('Content-Security-Policy-Report-Only');
 
-    newResponse.headers.set('Access-Control-Allow-Origin', '*');
-    newResponse.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    const rawCookies = res.headers.getSetCookie?.() || (res.headers.get('set-cookie') ? [res.headers.get('set-cookie')] : []);
+    if (rawCookies.length) {
+      res.headers.delete('Set-Cookie');
+      for (const c of rawCookies) {
+        res.headers.append('Set-Cookie', c
+          .replace(new RegExp(`Domain=[^;]+;?\\s*`, 'gi'), '')
+          .replace(/;\s*Secure/gi, '')
+          .replace(/;\s*SameSite=None/gi, '; SameSite=Lax')
+        );
+      }
+    }
 
-    return newResponse;
+    const ct = res.headers.get('content-type') || '';
+    if (/html|wml|xhtml/i.test(ct)) {
+      const text = (await res.text()).replace(new RegExp(`https?://${targetDomain}`, 'gi'), `http://${originalHost}`);
+      const h = new Headers(res.headers);
+      h.delete('content-length');
+      res = new Response(text, { status: res.status, statusText: res.statusText, headers: h });
+    }
+
+    res.headers.set('Access-Control-Allow-Origin', '*');
+    res.headers.set('Access-Control-Allow-Methods', '*');
+    res.headers.set('Access-Control-Allow-Headers', '*');
+
+    return res;
   }
 };
