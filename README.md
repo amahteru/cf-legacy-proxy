@@ -14,7 +14,7 @@
 
 1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com/)，进入 **Workers & Pages**。
 2. 点击 **Create Worker**，起名并创建。
-3. 点击 **Edit code**，将本项目中的代码（`universal-proxy.js`）复制粘贴替换默认代码。
+3. 点击 **Edit code**，将本项目中的代码（`cf-legacy-proxy.js`）复制粘贴替换默认代码。
 4. 点击右上角的 **Deploy** 保存。
 
 ## 配置

@@ -27,9 +27,9 @@ export default {
     url.port = targetPort;
 
     const headers = new Headers(request.headers);
-    headers.set('Host', targetHost);
+    headers.set('Host', targetDomain);
     headers.set('X-Forwarded-Host', originalHost);
-    headers.set('X-Forwarded-Proto', 'https');
+    headers.set('X-Forwarded-Proto', targetProto === 'http:' ? 'http' : 'https');
     headers.set('X-Real-IP', request.headers.get('CF-Connecting-IP') || 'unknown-ip');
     headers.delete('CF-Connecting-IP');
 
@@ -78,15 +78,15 @@ export default {
       res.headers.delete('Set-Cookie');
       for (const c of rawCookies) {
         res.headers.append('Set-Cookie', c
-          .replace(/;\s*Domain=[^;]+/gi, '')
-          .replace(/;\s*Secure/gi, '')
+          .replace(/;\s*Domain=[^;]*/gi, '')
+          .replace(/;\s*Secure\b/gi, '')
           .replace(/;\s*SameSite=None/gi, '; SameSite=Lax')
         );
       }
     }
 
     const ct = res.headers.get('content-type') || '';
-    if (/html|wml|xhtml|text\/css|javascript|json|xml/i.test(ct)) {
+    if (![101, 204, 205, 304].includes(res.status) && /html|wml|xhtml|text\/css|javascript|json|xml/i.test(ct)) {
       const arrayBuf = await res.arrayBuffer();
 
       let charset = ct.match(/charset=([^;]+)/i)?.[1]?.trim().toLowerCase();
