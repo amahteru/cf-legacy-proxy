@@ -1,6 +1,6 @@
 # CF-Legacy-Proxy
 
-让不支持现代 TLS/SSL 加密协议的老旧设备（如塞班系统、早期功能机、复古 PDA 等）能够重新访问现代 HTTPS 网站的 Cloudflare Worker 反向代理脚本。
+让不支持现代 TLS/SSL 加密协议的老旧设备（如塞班系统、早期功能机、复古 PDA 等）能够访问现代 HTTPS 网站的 Cloudflare Worker 反向代理脚本。
 
 ## 功能
 
@@ -13,8 +13,8 @@
 ## 部署
 
 1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com/)，进入 **Workers & Pages**。
-2. 点击 **Create Worker**，起个名字并创建。
-3. 点击 **Edit code**，将本项目中的代码（`universal-proxy.js`）复制并粘贴替换掉默认代码。
+2. 点击 **Create Worker**，起名并创建。
+3. 点击 **Edit code**，将本项目中的代码（`universal-proxy.js`）复制粘贴替换默认代码。
 4. 点击右上角的 **Deploy** 保存。
 
 ## 配置
@@ -28,7 +28,7 @@
    * **Value**: 你想要代理的目标域名 (例如: `api.github.com` 或 `your-modern-site.com`)
 4. **Deploy** 重新部署使配置生效。
 
-**注意**：为了让老手机正常访问，请务必为你的 Worker 绑定一个**未强制开启 HTTPS** 的自定义域名，并使用该自定义域名的 `http://` 协议进行访问。
+**注意**：为了让老手机正常访问，为你的 Worker 绑定一个**未强制开启 HTTPS** 的自定义域名。
 
 ## 协议
 
