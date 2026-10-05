@@ -124,6 +124,7 @@ export default {
       const encoded = new TextEncoder().encode(text);
       const h = new Headers(res.headers);
       h.delete('content-encoding');
+      h.delete('transfer-encoding');
       h.set('content-length', encoded.byteLength.toString());
       h.set('content-type', ct.includes('charset=') ? ct.replace(/charset\s*=\s*["']?[^;"'\s]+["']?/i, 'charset=utf-8') : `${ct}; charset=utf-8`);
 
