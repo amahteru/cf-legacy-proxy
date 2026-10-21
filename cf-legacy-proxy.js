@@ -1,3 +1,5 @@
+const TEXT_MIME = /^(?:text\/(?:html|css|javascript|ecmascript|xml|vnd\.wap\.wml|vnd\.wap\.wmlscript)|application\/(?:xhtml\+xml|vnd\.wap\.xhtml\+xml|xml|json|javascript|x-javascript|ecmascript)|[a-z0-9.+-]+\/[a-z0-9.-]+\+(?:xml|json))$/;
+
 export default {
   async fetch(request, env) {
     if (request.method === 'OPTIONS' && request.headers.has('Origin')) {
@@ -36,7 +38,6 @@ export default {
     headers.delete('CF-Connecting-IP');
 
     const clientAE = request.headers.get('accept-encoding') || '';
-    headers.set('Accept-Encoding', clientAE.includes('gzip') ? 'gzip, deflate' : 'identity');
 
     if (request.cf) {
       headers.set('X-Real-Country', request.cf.country || '');
@@ -51,8 +52,7 @@ export default {
         method: request.method,
         headers,
         body: isBodyMethod ? request.body : null,
-        redirect: 'manual',
-        ...(isBodyMethod ? { duplex: 'half' } : {})
+        redirect: 'manual'
       });
     } catch (err) {
       return new Response(`Bad Gateway: ${err.message}`, {
@@ -84,7 +84,7 @@ export default {
     res.headers.delete('Content-Security-Policy');
     res.headers.delete('Content-Security-Policy-Report-Only');
 
-    const rawCookies = res.headers.getSetCookie?.() || (res.headers.get('set-cookie') ? [res.headers.get('set-cookie')] : []);
+    const rawCookies = res.headers.getSetCookie();
     if (rawCookies.length) {
       res.headers.delete('Set-Cookie');
       for (const c of rawCookies) {
@@ -97,14 +97,15 @@ export default {
     }
 
     const ct = res.headers.get('content-type') || '';
-    if (request.method !== 'HEAD' && ![101, 204, 205, 304].includes(res.status) && /html|wml|xhtml|text\/css|javascript|json|xml/i.test(ct)) {
+    const mime = ct.split(';')[0].trim().toLowerCase();
+    const isMarkup = /(?:html|xml|wml)$/.test(mime);
+    if (request.method !== 'HEAD' && ![101, 204, 205, 304].includes(res.status) && TEXT_MIME.test(mime)) {
       const arrayBuf = await res.arrayBuffer();
 
       let charset = ct.match(/charset\s*=\s*["']?([^;"'\s]+)/i)?.[1]?.toLowerCase();
-      if (!charset && /html|wml|xhtml|xml/i.test(ct)) {
+      if (!charset && isMarkup) {
         const preview = new TextDecoder('latin1').decode(arrayBuf.slice(0, 4096));
         const match = preview.match(/<meta[^>]+charset\s*=\s*["']?([a-zA-Z0-9_-]+)/i) ||
-                      preview.match(/<meta[^>]+content=["'][^"']*charset\s*=\s*([a-zA-Z0-9_-]+)/i) ||
                       preview.match(/<\?xml[^>]+encoding\s*=\s*["']([a-zA-Z0-9_-]+)["']/i);
         if (match) charset = match[1].toLowerCase();
       }
@@ -123,25 +124,21 @@ export default {
       const domainRegex = new RegExp(`(?:https?:(\\\\/\\\\/|//)|(?<![:a-zA-Z0-9+.-])(\\\\/\\\\/|//))${hostPattern}${portPattern}(?=[/?#"')\\\\\\s<>]|$)`, 'gi');
       text = text.replace(domainRegex, (_, s1, s2) => `http:${s1 || s2}${originalHost}`);
 
-      if (/html|wml|xhtml|xml/i.test(ct)) {
+      if (isMarkup) {
         text = text
           .replace(/<meta[^>]*http-equiv\s*=\s*["']?Content-Security-Policy["']?[^>]*>/gi, '')
-          .replace(/(<meta[^>]+content=["'][^"']*charset\s*=\s*)[a-zA-Z0-9_-]+/gi, '$1utf-8')
           .replace(/(<meta[^>]+charset\s*=\s*["']?)[a-zA-Z0-9_-]+(["']?)/gi, '$1utf-8$2')
           .replace(/(<\?xml[^>]+encoding\s*=\s*["'])[a-zA-Z0-9_-]+(["'])/gi, '$1utf-8$2');
       }
 
       const encoded = new TextEncoder().encode(text);
       const h = new Headers(res.headers);
-      h.delete('transfer-encoding');
       if (clientAE.includes('gzip')) {
         h.set('content-encoding', 'gzip');
-        h.delete('content-length');
       } else {
         h.delete('content-encoding');
-        h.set('content-length', encoded.byteLength.toString());
       }
-      h.set('content-type', ct.includes('charset=') ? ct.replace(/charset\s*=\s*["']?[^;"'\s]+["']?/i, 'charset=utf-8') : `${ct}; charset=utf-8`);
+      h.set('content-type', /charset\s*=/i.test(ct) ? ct.replace(/charset\s*=\s*["']?[^;"'\s]+["']?/i, 'charset=utf-8') : `${ct}; charset=utf-8`);
 
       res = new Response(encoded, { status: res.status, statusText: res.statusText, headers: h });
     }
