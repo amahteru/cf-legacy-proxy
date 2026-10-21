@@ -20,17 +20,19 @@ export default {
     const baseHost = targetHost.replace(/^www\./i, '');
 
     const url = new URL(request.url);
-    const { hostname: origHostname, port: origPort, host: originalHost } = url;
+    const { hostname: origHostname, port: origPort, host: originalHost, protocol: origProto } = url;
 
     url.hostname = targetHost;
     url.protocol = targetProto;
     url.port = targetPort;
 
+    const clientIP = request.headers.get('CF-Connecting-IP') || 'unknown-ip';
     const headers = new Headers(request.headers);
     headers.set('Host', targetDomain);
     headers.set('X-Forwarded-Host', originalHost);
-    headers.set('X-Forwarded-Proto', targetProto === 'http:' ? 'http' : 'https');
-    headers.set('X-Real-IP', request.headers.get('CF-Connecting-IP') || 'unknown-ip');
+    headers.set('X-Forwarded-Proto', origProto === 'http:' ? 'http' : 'https');
+    headers.set('X-Real-IP', clientIP);
+    headers.set('X-Forwarded-For', clientIP);
     headers.delete('CF-Connecting-IP');
 
     const clientAE = request.headers.get('accept-encoding') || '';
@@ -43,13 +45,21 @@ export default {
     }
 
     const isBodyMethod = request.method !== 'GET' && request.method !== 'HEAD';
-    const response = await fetch(url.toString(), {
-      method: request.method,
-      headers,
-      body: isBodyMethod ? request.body : null,
-      redirect: 'manual',
-      ...(isBodyMethod ? { duplex: 'half' } : {})
-    });
+    let response;
+    try {
+      response = await fetch(url.toString(), {
+        method: request.method,
+        headers,
+        body: isBodyMethod ? request.body : null,
+        redirect: 'manual',
+        ...(isBodyMethod ? { duplex: 'half' } : {})
+      });
+    } catch (err) {
+      return new Response(`Bad Gateway: ${err.message}`, {
+        status: 502,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }
+      });
+    }
 
     let res = new Response(response.body, response);
 
@@ -123,9 +133,14 @@ export default {
 
       const encoded = new TextEncoder().encode(text);
       const h = new Headers(res.headers);
-      h.delete('content-encoding');
       h.delete('transfer-encoding');
-      h.set('content-length', encoded.byteLength.toString());
+      if (clientAE.includes('gzip')) {
+        h.set('content-encoding', 'gzip');
+        h.delete('content-length');
+      } else {
+        h.delete('content-encoding');
+        h.set('content-length', encoded.byteLength.toString());
+      }
       h.set('content-type', ct.includes('charset=') ? ct.replace(/charset\s*=\s*["']?[^;"'\s]+["']?/i, 'charset=utf-8') : `${ct}; charset=utf-8`);
 
       res = new Response(encoded, { status: res.status, statusText: res.statusText, headers: h });
