@@ -20,6 +20,7 @@ export default {
     const targetUrl = new URL(rawTarget.includes('://') ? rawTarget : `https://${rawTarget}`);
     const { protocol: targetProto, hostname: targetHost, port: targetPort, host: targetDomain } = targetUrl;
     const baseHost = targetHost.replace(/^www\./i, '');
+    const escapedHost = baseHost.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
     const url = new URL(request.url);
     const { hostname: origHostname, port: origPort, host: originalHost, protocol: origProto } = url;
@@ -66,7 +67,7 @@ export default {
     const location = res.headers.get('Location');
     if (location) {
       try {
-        const loc = new URL(location, `${targetProto}//${targetDomain}`);
+        const loc = new URL(location, targetUrl.origin);
         const locHost = loc.hostname.replace(/^www\./i, '');
         if (locHost === baseHost) {
           loc.protocol = 'http:';
@@ -75,8 +76,7 @@ export default {
           res.headers.set('Location', loc.toString());
         }
       } catch {
-        const escaped = baseHost.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        res.headers.set('Location', location.replace(new RegExp(`https?://(?:www\\.)?${escaped}(?::\\d+)?(?=[/?#]|$)`, 'gi'), `http://${originalHost}`));
+        res.headers.set('Location', location.replace(new RegExp(`https?://(?:www\\.)?${escapedHost}(?::\\d+)?(?=[/?#]|$)`, 'gi'), `http://${originalHost}`));
       }
     }
 
@@ -118,7 +118,6 @@ export default {
         text = new TextDecoder('utf-8').decode(arrayBuf);
       }
 
-      const escapedHost = baseHost.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const hostPattern = `(?:www\\.)?${escapedHost}`;
       const portPattern = targetPort ? `(?::${targetPort})?` : '(?::\\d+)?';
       const domainRegex = new RegExp(`(?:https?:(\\\\/\\\\/|//)|(?<![:a-zA-Z0-9+.-])(\\\\/\\\\/|//))${hostPattern}${portPattern}(?=[/?#"')\\\\\\s<>]|$)`, 'gi');

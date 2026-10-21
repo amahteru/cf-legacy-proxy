@@ -5,10 +5,10 @@
 ## 功能
 
 * **协议降级**：向客户端返回纯 HTTP 内容，自动剥离 HSTS 与 CSP，防止浏览器强制跳转 HTTPS。
-* **链接重写**：自动拦截 `Location` 重定向，并将网页及资源（HTML/CSS/JS/JSON）中的源站链接替换为代理地址。
+* **链接重写**：自动拦截 `Location` 重定向，并将网页及资源（HTML/XHTML/WML/CSS/JS/JSON/XML）中的源站链接替换为代理地址；WMLC、图片、Office 文档等二进制内容原样转发。
 * **状态保持**：自动移除 Cookie 中的 `Secure` 与 `Domain`，确保纯 HTTP 下正常保持登录态。
 * **字符转码**：自动将 GBK/GB2312 等编码转为 UTF-8，防止网页字符乱码。
-* **透传与跨域**：透传访客真实 IP (`X-Real-IP`) 与压缩协商，并自动添加 CORS 跨域响应头。
+* **透传与跨域**：透传访客真实 IP (`X-Real-IP` / `X-Forwarded-For`)，按访客支持返回 gzip 压缩，并自动添加 CORS 跨域响应头。
 
 ## 部署
 
