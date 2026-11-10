@@ -1,4 +1,4 @@
-# CF-Legacy-Proxy
+# CF Legacy Proxy
 
 让不支持现代 TLS/SSL 加密协议的老旧设备（如塞班系统、早期功能机、复古 PDA 等）能够访问现代 HTTPS 网站的 Cloudflare Worker 反向代理脚本。
 
