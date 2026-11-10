@@ -4,11 +4,11 @@
 
 ## 功能
 
-* **协议降级**：向客户端返回纯 HTTP 内容，自动剥离 HSTS 与 CSP，防止浏览器强制跳转 HTTPS。
-* **链接重写**：自动拦截 `Location` 重定向，并将网页及资源（HTML/XHTML/WML/CSS/JS/JSON/XML）中的源站链接替换为代理地址；WMLC、图片、Office 文档等二进制内容原样转发。
-* **状态保持**：自动移除 Cookie 中的 `Secure` 与 `Domain`，确保纯 HTTP 下正常保持登录态。
-* **字符转码**：自动将 GBK/GB2312 等编码转为 UTF-8，防止网页字符乱码。
-* **透传与跨域**：透传访客真实 IP (`X-Real-IP` / `X-Forwarded-For`)，按访客支持返回 gzip 压缩，并自动添加 CORS 跨域响应头。
+- **协议降级**：向客户端返回纯 HTTP 内容，自动剥离 HSTS 与 CSP，防止浏览器强制跳转 HTTPS。
+- **链接重写**：自动拦截 `Location` 重定向，并将网页及资源（HTML/XHTML/WML/CSS/JS/JSON/XML）中的源站链接替换为代理地址；WMLC、图片、Office 文档等二进制内容原样转发。
+- **状态保持**：自动移除 Cookie 中的 `Secure` 与 `Domain`，确保纯 HTTP 下正常保持登录态。
+- **字符转码**：自动将 GBK/GB2312 等编码转为 UTF-8，防止网页字符乱码。
+- **透传与跨域**：透传访客真实 IP (`X-Real-IP` / `X-Forwarded-For`)，按访客支持返回 gzip 压缩，并自动添加 CORS 跨域响应头。
 
 ## 部署
 
@@ -24,12 +24,12 @@
 1. 在你的 Worker 管理页面，进入 **Settings** (设置) -> **Variables and Secrets** (变量和机密)。
 2. 在 **Environment Variables** (环境变量) 下点击 **Add**。
 3. 添加以下变量：
-   * **Variable name**: `TARGET_DOMAIN`
-   * **Value**: 你想要代理的目标域名 (例如: `api.github.com` 或 `your-modern-site.com`)
+   - **Variable name**：`TARGET_DOMAIN`
+   - **Value**：你想要代理的目标域名 (例如：`api.github.com` 或 `your-modern-site.com`)
 4. **Deploy** 重新部署使配置生效。
 
 **注意**：为了正常访问，为你的 Worker 绑定一个**未强制开启 HTTPS** 的自定义域名（并在 Cloudflare 边缘证书设置中关闭“始终使用 HTTPS”）。
 
 ## 协议
 
-本项目基于 [MIT License](./LICENSE) 协议开源。
+本项目采用 [MIT 许可证](./LICENSE) 开源。
